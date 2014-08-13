@@ -1,0 +1,261 @@
+#!/usr/bin/env python
+# coding=utf-8
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+
+'''A tool for fetching resource information for the given stack.'''
+
+
+from __future__ import print_function
+import argparse
+import os
+import sys
+import json
+import yaml
+from pprint import pprint
+import codilime.heat.utility as utility
+
+
+def get_parameters():
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog='In current version only Nova and Neutron resources'
+        ' are supported.')
+    parser.add_argument('--os-auth-url',
+                        dest='keystone_endpoint_url',
+                        default=os.environ.get('OS_AUTH_URL'),
+                        metavar='URL',
+                        help='Keystone API endpoint URL')
+    parser.add_argument('--os-username',
+                        dest='username',
+                        default=os.environ.get('OS_USERNAME'),
+                        metavar='username',
+                        help='username')
+    parser.add_argument('--os-password',
+                        dest='password',
+                        default=os.environ.get('OS_PASSWORD'),
+                        metavar='password',
+                        help='password')
+    parser.add_argument('--os-tenant-name',
+                        dest='tenant_name',
+                        default=os.environ.get('OS_TENANT_NAME'),
+                        metavar='tenant name',
+                        help='tenant name')
+    parser.add_argument('-s', '--stack-name',
+                        required=True,
+                        metavar='stack name',
+                        help='stack name')
+    parser.add_argument('-o', '--output-file',
+                        nargs='?',
+                        metavar='file',
+                        help='output file; unless specified otherwise'
+                        ' the output is written to standard output'
+                        ' (`-\' is interpreted as standard output)')
+    parser.add_argument('-m', '--mappings-file',
+                        nargs='?',
+                        default='./heat_mappings.json',
+                        metavar='file',
+                        help='mappings file; unless specified otherwise'
+                        ' the output is heat_mappings.json in the script dir')
+    parser.add_argument('-i', '--ignore-heat-resources',
+                        action='store_true',
+                        help='resources seen only by Heat'
+                        ' (eg. RouterGateway) will be filtered out')
+    parser.add_argument('--include-unsupported-resources',
+                        action='store_false',
+                        help='resources not supported (eg. volumes)'
+                        ' will be included in the output, but only'
+                        ' their heat description will be visible'
+                        ' (by default such resources are ignored)')
+    args = parser.parse_args()
+
+    credentials = [
+        ('keystone_endpoint_url', '--os-auth-url'),
+        ('username', '--os-username'),
+        ('password', '--os-password'),
+        ('tenant_name', '--os-tenant-name')
+    ]
+    for credential, parameter in credentials:
+        if getattr(args, credential) is None:
+            msg = 'The {} parameter has not been specified and cannot' \
+                ' be get from the system environment.'.format(parameter)
+            print(msg, file=sys.stderr)
+            exit(1)
+
+    return args
+
+
+def sortMyKeys(keys):
+    keys.sort()
+    for i in range(len(keys)):
+        if(keys[i] == "relationships"):
+            rel = keys.pop(i)
+            keys.append(rel)
+            break
+        elif(keys[i] == "imports" or keys[i] == "name"):
+            rel = keys.pop(i)
+            keys.insert(0, rel)
+            break
+
+    return keys
+
+
+def recurse(mappings, heat, level, isListFirstItem=False):
+    level = level + 1
+    if isinstance(mappings, dict):
+        for k in sortMyKeys(mappings.keys()):
+            heat_key = k
+            if heat_key in ["properties", "relationships"]:
+                heat_key = "resource_attributes"
+            if(isinstance(mappings[k], dict) or isinstance(mappings[k], list)):
+                if(len(mappings[k]) > 1 or isinstance(mappings[k], dict)):
+                    sys.stdout.write("\n{0} {1}{2}: ".format("    " * level, "-" if isListFirstItem else "", k))
+                    isListFirstItem = False
+                    if isinstance(mappings[k], dict) and (mappings[k].keys()[0].startswith("OS::Neutron::" or 
+                        mappings[k].keys()[0].startswith("OS::Nova::"))):
+                        for heat_node in heat['resources']:
+                            for key in mappings[k]:
+                                if(isinstance(heat_node, dict) and heat_node["resource_type"] == key):
+                                    recurse(mappings[k][key], heat_node, level, True)
+                    else:
+                        recurse(mappings[k], heat[heat_key] if heat_key in heat else heat, level)
+                        sys.stdout.write("{0} ".format("    " * level))
+                else:
+                    sys.stdout.write("\n{0} {1}{2}: ".format("    " * level, "-" if isListFirstItem else "", k))
+                    isListFirstItem = False
+                    recurse(mappings[k], heat[heat_key] if heat_key in heat else heat , level),
+                    sys.stdout.write( "{0}".format("    " * level))
+            else:
+                value = mappings[k]
+		if k == "Neutron_config" and value == "$$$":
+                    yamltxt = yaml.dump(heat ,
+                          Dumper=yaml.CSafeDumper,
+                          default_flow_style=False)
+                    sys.stdout.write( "\n{0} {1} ".format("    " * level, yamltxt.replace('\n',"\n {}".format("    " * level))))
+                elif value.startswith('$'):
+                    parts = value[1:].split(":")
+                    value = heat
+                    for part in parts:
+                        if(part in value):
+                            value = value[part]
+                            if not isinstance(value,dict):
+                                break
+                    sys.stdout.write( "\n{0} {1}{2}: {3} ".format("    " * level,
+                                                  "-" if isListFirstItem else "", k, value))
+                else:
+                    sys.stdout.write( "\n{0} {1}{2}: {3} ".format("    " * level,
+                                                  "-" if isListFirstItem else "", k, value))
+                isListFirstItem = False
+    elif isinstance(mappings, list):
+        for i in sortMyKeys(mappings):
+            if isinstance(i, dict):
+                matchedNodes = []
+                if(i.keys()[0].startswith("OS::Neutron::" or i.keys()[0].startswith("OS::Nova::"))):
+                        for heat_node in heat['resources']:
+                            for k in i:
+                                if(isinstance(heat_node, dict) and heat_node["resource_type"] == k):
+                                    recurse(i[k], heat_node, level, True)
+            else:
+                sys.stdout.write( "\n{0} -{1} ".format("    " * level, i))
+#            print "{0} ".format("    " * level),
+    else:
+        sys.stdout.write ("{0}{1}{2}".format("    " * level, "-" if isListFirstItem else "", mappings))
+
+# def construct_cloudify_blueprint(mappings, heat, level):
+#     level = level + 1
+#     if isinstance(mappings, dict):
+#         elem_left = len(mappings)
+#         for k in mappings:
+#             elem_left -= 1
+#             if(isinstance(mappings[k], dict) or isinstance(mappings[k], list)):
+#                 if(len(mappings[k]) > 1 or isinstance(mappings, dict)):
+#                     print "{0} {1}: {{".format("    " * level, k)
+#                     recurse(mappings[k], level)
+#                     print "{0} }}".format("    " * level)
+#                 else:
+#                     print "{0} {1}: ".format("    " * level, k)
+#                     recurse(mappings[k], level)
+#                     print "{0}".format("    " * level)
+#             else:
+#                 print "{0} {1}: {2}{3} ".format("    " * level, k, mappings[k], "" if elem_left == 0 else ",")
+#     elif isinstance(mappings, list):
+#         for i in d:
+#             print "{0} [".format("    " * level)
+#             if isinstance(i, dict):
+#                 for k in i:
+#                     recurse(i[k], level)
+#             else:
+#                 print "{0}, {1} ".format("    " * level, mappings[i])
+#             print "{0} ]".format("    " * level)
+#     else:
+#         print "{0}{1}".format("    " * level, mappings)
+#   
+#     
+
+
+def main():
+    parameters = get_parameters()
+
+    clients = utility.APIClients(
+        parameters.keystone_endpoint_url,
+        parameters.username,
+        parameters.password,
+        parameters.tenant_name
+    )
+
+    stack = utility.get_stack_by_name(
+        clients.heat(),
+        parameters.stack_name)
+    stack['resources'] = utility.get_all_stack_resource_info(
+        clients,
+        stack['id'],
+        parameters.ignore_heat_resources,
+        parameters.include_unsupported_resources)
+    #pprint(stack)
+    json_data = {}
+    try:
+        with open(parameters.mappings_file) as input_file:
+    	    json_data = json.load(input_file)
+    except IOError as e:
+        print('error: ' + str(e), file=sys.stderr)
+        sys.exit(1)
+ 
+    type_prefix = 'cloudify.openstack.'
+    recurse(json_data, stack, 0)
+    stack_cfy_nodes = []
+    stack_cfy_nodes.append({'name': 'heat_stack', 'type': 'cloudify.heat.heat_stack', 'properties':{'stack_name': parameters.stack_name}})
+    stack_relationship = [{'type':'cloudify.relationships.depends_on', 'target': 'heat_stack'}]
+    for res in stack.get('resources'):
+	openstack_type = res.get('resource_type').rsplit("::",1)[1]
+	stack_cfy_nodes.append({'name': res.get('resource_name'), 'type': "{0}{1}".format(type_prefix, openstack_type), 'relationships': stack_relationship})
+
+    stack_cfy = {'imports':['cloudify.openstack'],'blueprint':{'name': stack['id'], 'nodes': stack_cfy_nodes}}
+    stack_yaml = yaml.dump(stack_cfy,
+    #stack_yaml = yaml.dump(stack,
+                          Dumper=yaml.CSafeDumper,
+                          default_flow_style=False)
+
+    if parameters.output_file is None:
+        sys.stdout.write(stack_yaml)
+    else:
+        try:
+            with open(parameters.output_file, 'w') as output_file:
+                output_file.write(stack_yaml)
+        except IOError as e:
+            print('error: ' + str(e), file=sys.stderr)
+            sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

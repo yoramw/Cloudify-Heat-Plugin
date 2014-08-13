@@ -1,0 +1,105 @@
+{
+    "imports": [
+        "plugin.yaml"
+    ],
+    "blueprint": {
+        "name": "$stack_name",
+        "nodes": 
+            {
+                "cloudify.heat.heat_stack": {
+                    "name": "heat_stack",
+                    "type": "cloudify.heat.heat_stack",
+                    "properties": {
+                        "stack_name": "$stack_name",
+                        "cloudify_management_network_name": "cloudify-admin-network",
+                        "template_url": "http://s3.amazonaws.com/yoramw/wordpress.yaml"
+                    }
+                },
+                "OS::Neutron::Net": {
+                    "name": "$resource_name",
+                    "type": "$resource_type",
+                    "properties": {
+                        "network": {
+                            "Neutron_config": "$$$"
+                        }
+                    },
+                    "relationships": {
+                        "target": "heat_stack",
+                        "type": "cloudify.relationships.contained_in"
+                    }
+                },
+                "OS::Neutron::Subnet": {
+                    "name": "$resource_name",
+                    "type": "$resource_type",
+                    "properties": {
+                        "subnet": {
+                            "Neutron_config": "$$$"
+                        }
+                    },
+                    "relationships": {
+                        "target": "$network:name",
+                        "type": "cloudify.relationships.contained_in"
+                    }
+                },
+                "OS::Neutron::FloatingIP": {
+                    "name": "$resource_name",
+                    "type": "$resource_type",
+                    "properties": {
+                        "floatingip": {
+                            "Neutron_config": "$$$"
+                        }
+                    },
+                    "relationships": {
+                        "target": "heat_stack",
+                        "type": "cloudify.relationships.contained_in"
+                    }
+                },
+                "OS::Neutron::Port": {
+                    "name": "$resource_name",
+                    "type": "$resource_type",
+                    "properties": {
+                        "port": {
+                            "Neutron_config": "$$$"
+                        }
+                    },
+                    "relationships": {
+                        "target": "heat_stack",
+                        "type": "cloudify.relationships.contained_in"
+                    }
+                },
+                "OS::Neutron::SecurityGroup": {
+                    "name": "$resource_name",
+                    "type": "$resource_type",
+                    "properties": {
+                        "security_group": {
+                            "Neutron_config": "$$$"
+                        }
+                    },
+                    "relationships": {
+                        "target": "heat_stack",
+                        "type": "cloudify.relationships.contained_in"
+                    }
+                },
+                "OS::Nova::Server": {
+                    "name": "$resource_name",
+                    "type": "$resource_type",
+                    "properties": {
+                        "cloudify_agent": {
+                            "user": "ubuntu"
+                        }, 
+			"cloudify_management_network_name":"my_app_network",
+                        "server": {
+                            "flavor_id": "$flavor:id",
+                            "image_id": "$image:id",
+                            "openstack_server_id": "$id",
+                            "Nova_config": "$$$"
+                        }
+                    },
+                    "relationships": {
+                       "target": "$network:name",
+                        "type": "cloudify.relationships.connected_to"
+                }
+            }
+        } 
+    }
+}

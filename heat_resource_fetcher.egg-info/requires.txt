@@ -1,0 +1,6 @@
+argparse
+PyYAML
+python-heatclient
+python-neutronclient
+python-novaclient
+python-keystoneclient
