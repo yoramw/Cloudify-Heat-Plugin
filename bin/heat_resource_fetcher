@@ -24,7 +24,7 @@ import sys
 import json
 import yaml
 from pprint import pprint
-import codilime.heat.utility as utility
+import heat.utility as utility
 
 types_mapping = {
     'OS::Neutron::Subnet':'cloudify.heat.subnet',
