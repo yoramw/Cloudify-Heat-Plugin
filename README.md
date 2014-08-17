@@ -66,7 +66,37 @@ Therefore it is  recommended to "source" *DevStack*'s *openrc* or write
 a short script setting up the environment.
 
 Assuming the tool is installed, running `heat_resource_fetcher -h` will
-print usage information.
+print usage information:
+/bin/heat_resource_fetcher -h
+usage: heat_resource_fetcher [-h] [--os-auth-url URL] [--os-username username]
+                             [--os-password password]
+                             [--os-tenant-name tenant name] -s stack name
+                             [-o [file]] [-m [file]] [-i]
+
+A tool for fetching resource information for the given stack.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --os-auth-url URL     Keystone API endpoint URL
+  --os-username username
+                        username
+  --os-password password
+                        password
+  --os-tenant-name tenant name
+                        tenant name
+  -s stack name, --stack-name stack name
+                        stack name
+  -o [file], --output-file [file]
+                        output file; unless specified otherwise the output is
+                        written to standard output (`-' is interpreted as
+                        standard output)
+  -m [file], --mappings-file [file]
+                        mappings file; unless specified otherwise the output
+                        is heat_mappings.json in the script dir
+  -i, --ignore-heat-resources
+                        resources seen only by Heat (eg. RouterGateway) will
+                        be filtered out
+
 
 If all necessary environment variables are properly set running
 `heat_resource_fetcher -s <stack-name>` will fetch stack information
@@ -74,4 +104,6 @@ from *OpenStack* and print it to the standard output. Using the `-o`
 flag the output can be written to a file. By default, a jason mapping file named 'heat_mappings.json' is expected.
 It can be overridden with a `-m` flag and a path to alternative mapping file.
 
- 
+Example:
+/bin/heat_resource_fetcher -s hello_stack --mappings-file ./heat_mappings.json --output-file ./blueprint.yaml
+
