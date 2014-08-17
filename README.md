@@ -68,10 +68,12 @@ a short script setting up the environment.
 Assuming the tool is installed, running `heat_resource_fetcher -h` will
 print usage information:
 /bin/heat_resource_fetcher -h
+
 usage: heat_resource_fetcher [-h] [--os-auth-url URL] [--os-username username]
                              [--os-password password]
                              [--os-tenant-name tenant name] -s stack name
                              [-o [file]] [-m [file]] [-i]
+                             
 
 A tool for fetching resource information for the given stack.
 
